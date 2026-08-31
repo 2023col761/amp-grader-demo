@@ -19,6 +19,7 @@ Usage:
 
 import argparse
 import json
+import math
 from pathlib import Path
 
 import seqme as sm
@@ -169,7 +170,21 @@ def main():
 
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)
-        args.out.write_text(json.dumps(json.loads(df.to_json(orient="index")), indent=2))
+
+        def clean(x):
+            return None if isinstance(x, float) and math.isnan(x) else x
+
+        report = {
+            "values": {
+                metric: {
+                    "value": clean(df.at["submission", (metric, "value")]),
+                    "deviation": clean(df.at["submission", (metric, "deviation")]),
+                }
+                for metric in df.attrs["objective"]
+            },
+            "objective": df.attrs["objective"],
+        }
+        args.out.write_text(json.dumps(report, indent=2))
         print(f"\nWrote {args.out}")
 
 

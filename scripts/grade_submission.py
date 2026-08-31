@@ -297,7 +297,10 @@ def do_score(
     report_out: Path | None,
 ) -> dict:
     library_fasta = dir / GENERATE_ENTRY_POINT / "library.fasta"
-    report_path = report_out or Path("reports/latest.json")
+    # Always normalize to a '.metrics.json' suffix -- aggregate_scores.py globs for exactly this,
+    # and this is the one place that normalization needs to happen, whether do_score is reached via
+    # the standalone `score` subcommand or through `all`.
+    report_path = (report_out or Path("reports/latest.json")).with_suffix(".metrics.json")
 
     print("[score] Scoring")
     metrics = _invoke_scorer(
@@ -352,7 +355,6 @@ def do_all(
     }
 
     if not skip_scoring:
-        metrics_path = (report_out or Path("reports/latest.json")).with_suffix(".metrics.json")
         report["metrics"] = do_score(
             dir,
             scorer_path=scorer_path,
@@ -360,7 +362,7 @@ def do_all(
             training_fasta=training_fasta,
             held_out_fasta=held_out_fasta,
             generic_fasta=generic_fasta,
-            report_out=metrics_path,
+            report_out=report_out,
         )
 
     if report_out:

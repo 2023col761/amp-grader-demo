@@ -1,26 +1,6 @@
 # AMP Challenge — grading demo
 
-This repository is a runnable copy of the real grading pipeline, so you can test your submission
-locally — clone, install, train, generate, verify, score — before you submit anything for real.
-For the full assignment description (problem statement, submission phases, sequence constraints,
-rubric, academic integrity policy), see the assignment document provided separately.
-
-**What's real here:** every script (`scripts/grade_submission.py`, `scorer/scorer.py`) is the
-actual code that will run against your submission. The sequence-validity checks, the
-train/generate split, the Phase-3 checkpoint-deletion enforcement, the reproducibility rerun, and
-the exact `seqme` metrics computed are all identical to real grading.
-
-**What's a placeholder here:**
-- `scorer/scorer.py`'s `PROFILES["grader"]` is set equal to `PROFILES["student"]`. Real grading
-  uses different, undisclosed models.
-- `--held-out-fasta` defaults to the public `data/training/training.fasta` here, since this demo
-  has no access to the real grader's secret held-out reference set (used for
-  `FBD (AMPs)`/`Conformity score`). Everything else about how those metrics are computed is
-  identical — only the reference data behind them differs.
-
-Data-curation scripts (how `training.fasta`/`background.fasta` were built from the raw MarLys
-export) aren't included here — they're not part of how grading works, just how the data was
-prepared once.
+This repository is a runnable copy of the grading pipeline for you to test your submission locally — clone, install, train, generate, verify, score — before submission. For the full assignment description, see the assignment document provided on Moodle. This README walks you through the grading process of a dummy submission available at `https://github.com/2023col761/dummy-submission.git`
 
 ## Setup
 
@@ -28,11 +8,61 @@ prepared once.
 uv sync
 ```
 
+## Phase-wise grading
+
+In phases 1-2 you submit pretrained weights (`checkpoint/` committed to your repo); the grader doesn't retrain your model. In phase 3 you submit training code only; the grader deletes any `checkpoint/` you committed and trains from scratch on its own copy of `training.fasta`.
+
+Swap `https://github.com/2023col761/dummy-submission.git` below for your own repo once you're ready to test it.
+
+**Phase 3 style — train from scratch:**
+
+```bash
+uv run python scripts/grade_submission.py all \
+  https://github.com/2023col761/dummy-submission.git \
+  --dir submission \
+  --scorer-profile grader \
+  --report-out reports/submission
+```
+
+**Phase 1-2 style — use the submission's committed `checkpoint/` as-is:**
+
+```bash
+uv run python scripts/grade_submission.py all \
+  https://github.com/2023col761/dummy-submission.git \
+  --dir submission \
+  --skip-train \
+  --scorer-profile grader \
+  --report-out reports/submission
+```
+
+`--training-fasta`, `--antibacterial-fasta`, `--generic-fasta`, and `--held-out-fasta` all point at this repo's own `data/` folder (`amp-grader-demo/data/`) — that's the source. 
+
+Your submission repo doesn't need a `data/` folder of its own committed to it: `setup` (part of `all`) creates one inside your submission's clone (`--dir submission` above, so `submission/data/...`), staging `training.fasta`/`antibacterial.fasta` from this repo's copies into it, overwriting anything you committed there. Your submission's own `train`/`generate` code should just read from that path — see "Starting your own submission" below.
+
+## Running stages independently
+
+You can skip cloning and retraining by using independent subcommands — `setup`, `train`, `generate`, and `score` — while operating on the same `--dir`:
+
+```bash
+uv run python scripts/grade_submission.py setup https://github.com/2023col761/dummy-submission.git --dir submission
+uv run python scripts/grade_submission.py train --dir submission        # deletes checkpoint/, retrains (skip for phases 1-2)
+uv run python scripts/grade_submission.py generate --dir submission      # verify + reproducibility check
+uv run python scripts/grade_submission.py score --dir submission --scorer-profile grader --report-out reports/submission
+```
+
+## Grading
+`scripts/grade_submission.py` generates the raw metrics for each submission; `scripts/aggregate_scores.py` aggregates the metrics into a cumulative score used for grading. Some of the metrics used for grading are unbounded. `scripts/aggregate_scores.py` normalizes those metrics against a cohort of submissions before taking their geometric mean (explaination in the assignment document). It needs multiple submissions' reports to normalize against, so running it against a single submission won't produce a meaningful score. If you want to see the mechanics run anyway, point `--reports-dir` at a folder containing multiple `scorer.py --out ...` runs (e.g. from a few candidate models or checkpoints you're comparing). It'll normalize and combine whatever's in there, which is enough to see exactly how your metrics turn into a score:
+
+```bash
+uv run python scripts/aggregate_scores.py --reports-dir reports --out reports/leaderboard.json
+```
+**Placeholders.** The scripts in this repo will be run as is against your submission. However, there are certain placeholders in the code that will be replaced at the time of graindg:
+- `scorer/scorer.py`'s `PROFILES["grader"]` is set equal to `PROFILES["student"]`. Grading uses different, undisclosed models.
+- `--held-out-fasta` defaults to the public `data/training/training.fasta` here, since this demo does not have access to the grader's held-out reference set (used for `FBD (AMPs)`/`Conformity score`). Everything else about how those metrics are computed is identical — only the reference data behind them differs.
+
 ## Starting your own submission
 
-Create your project as a **sibling** of this directory (not inside it) — that keeps your
-submission's own dependencies (whatever your model needs) separate from `scorer.py`'s
-dependencies (`seqme`, heavy and irrelevant to grading correctness):
+Emulate the dummy submission's structure. Do NOT create your project inside this grader. This grader shouldn't be part of your submission.
 
 ```bash
 uv init --package my-model
@@ -47,67 +77,8 @@ train = "my_model.train:main"
 generate = "my_model.generate:main"
 ```
 
-Implement `train.py` so `uv run train` reads `data/training/training.fasta` and writes whatever
-your model needs into `checkpoint/`. Implement `generate.py` so `uv run generate` loads
-`checkpoint/`, produces exactly 1,000 valid unique AMP candidates, and writes them to
-`generate/library.fasta`, filtering against `data/antibacterial.fasta` as you go.
+Implement `train.py` so `uv run train` reads `data/training/training.fasta` and writes whatever your model needs into `checkpoint/`. Implement `generate.py` so `uv run generate` loads `checkpoint/`, produces exactly 1,000 valid unique AMP candidates, and writes them to `generate/library.fasta`, filtering against `data/antibacterial.fasta` as you go. Both `data/...` paths here are relative to *your own submission repo* — as explained above, that folder doesn't exist in your repo yet; the grader creates and populates it for you at grading time (see the note above and `dummy-submission`'s `train.py`/`generate.py`, which read from these exact same paths).
 
-Whether you commit `checkpoint/` depends on which phase you're submitting (see the assignment
-document): pretrained weights for phases 1-2, nothing (add it to `.gitignore`) for phase 3, where
-the grader trains it from scratch itself.
+Whether you commit `checkpoint/` depends on which phase you're submitting (see the assignment document): pretrained weights for phases 1-2, nothing (add it to `.gitignore`) for phase 3, where the grader trains it from scratch itself.
 
-Copy `../amp-grader-demo/data/antibacterial.fasta` and
-`../amp-grader-demo/data/training/training.fasta` into your project at
-`data/antibacterial.fasta` and `data/training/training.fasta` for local development, and add
-`data/` to `.gitignore` — the grader overwrites both files with its own copies at grading time, so
-your submission should never commit them.
-
-## Two ways to grade — matching the two ways *you'll* submit
-
-In phases 1-2 you submit **pretrained weights** (`checkpoint/` committed to your repo) and the
-grader never retrains your model. In phase 3 you submit **training code only** — the grader
-deletes any `checkpoint/` you committed and trains from scratch on its own copy of
-`training.fasta`, so nobody can smuggle in extra data or a shortcut checkpoint. Both modes are
-available here; swap `https://github.com/2023col761/dummy-submission.git` below for your own repo
-once you're ready to test it for real.
-
-**Phase 3 style — train from scratch:**
-
-```bash
-uv run python scripts/grade_submission.py all \
-  https://github.com/2023col761/dummy-submission.git \
-  --scorer-profile grader \
-  --report-out reports/mine.json
-```
-
-**Phase 1-2 style — use the submission's committed `checkpoint/` as-is:**
-
-```bash
-uv run python scripts/grade_submission.py all \
-  https://github.com/2023col761/dummy-submission.git \
-  --skip-train \
-  --scorer-profile grader \
-  --report-out reports/mine.json
-```
-
-(`--training-fasta`, `--antibacterial-fasta`, `--generic-fasta`, and `--held-out-fasta` all have
-sensible defaults pointing at `data/` in this repo — you only need to override them if you've
-moved files around.)
-
-## Running stages independently
-
-You don't have to redo the clone or retrain every time you want to check one thing — `setup`,
-`train`, `generate`, and `score` are independent subcommands that all operate on the same `--dir`
-(defaults to `submission/`):
-
-```bash
-uv run python scripts/grade_submission.py setup https://github.com/<you>/<your-submission>.git
-uv run python scripts/grade_submission.py train        # deletes checkpoint/, retrains (skip for phases 1-2)
-uv run python scripts/grade_submission.py generate      # verify + reproducibility check
-uv run python scripts/grade_submission.py score --scorer-profile grader --report-out reports/mine.json
-```
-
-`setup` clones your repo and stages this demo's copies of `training.fasta` and
-`antibacterial.fasta` over whatever you committed (if anything) — same mechanism the real grader
-uses. If this passes here, the mechanical part of real grading will pass too — only the specific
-classifier/embedder values and the held-out reference set differ (see above).
+For local development, copy `antibacterial.fasta` and `training/training.fasta` into your project at `data/antibacterial.fasta` and `data/training/training.fasta`. Remember, you won't commit this as the grader does this step for you. So add `data/` to `.gitignore`.
