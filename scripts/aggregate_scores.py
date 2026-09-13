@@ -35,6 +35,9 @@ FBD_MARGIN = "FBD margin"
 UNBOUNDED_METRICS = {"FKEA", "Activity"}
 ROBUST_SCALE = 1.0
 
+# Diagnostic only: enters the aggregate through FBD margin, not as a component of its own.
+DIAGNOSTIC_METRICS = {FBD_GENERIC}
+
 
 def load_submissions(reports_dir: Path) -> dict[str, dict]:
     submissions = {}
@@ -100,8 +103,7 @@ def normalize_components(
     squashed through a sigmoid into (0,1) -- robust to a single unusually good/bad/degenerate
     submission in a small cohort, unlike min-max. Everything else is already bounded after
     direction-fixing (Diversity, Novelty, AuthPct, Conformity score, FBD margin -- all natively
-    [0,1]-ish; FBD (generic)/FBD (AMPs) via the 1/(1+x) transform) and is left as raw, just floored
-    at epsilon.
+    [0,1]-ish; FBD (AMPs) via the 1/(1+x) transform) and is left as raw, just floored at epsilon.
     """
     normalized = {submission_id: {} for submission_id in fixed}
     for metric in components:
@@ -142,7 +144,8 @@ def main():
 
     add_fbd_margin(raw, objectives)
 
-    components = [metric for metric in objectives if metric not in CONSTRAINT_METRICS]
+    excluded = CONSTRAINT_METRICS | DIAGNOSTIC_METRICS
+    components = [metric for metric in objectives if metric not in excluded]
 
     fixed = direction_fix(raw, objectives)
     normalized = normalize_components(fixed, components, args.epsilon)
