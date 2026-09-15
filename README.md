@@ -21,6 +21,7 @@ uv run python scripts/grade_submission.py all \
   https://github.com/2023col761/dummy-submission.git \
   --dir submission \
   --scorer-profile grader \
+  --held-out-fasta data/training/training.fasta \
   --report-out reports/submission
 ```
 
@@ -32,6 +33,7 @@ uv run python scripts/grade_submission.py all \
   --dir submission \
   --skip-train \
   --scorer-profile grader \
+  --held-out-fasta data/training/training.fasta \
   --report-out reports/submission
 ```
 
@@ -47,11 +49,12 @@ You can skip cloning and retraining by using independent subcommands — `setup`
 uv run python scripts/grade_submission.py setup https://github.com/2023col761/dummy-submission.git --dir submission
 uv run python scripts/grade_submission.py train --dir submission        # deletes checkpoint/, retrains (skip for phases 1-2)
 uv run python scripts/grade_submission.py generate --dir submission      # verify + reproducibility check
-uv run python scripts/grade_submission.py score --dir submission --scorer-profile grader --report-out reports/submission
+uv run python scripts/grade_submission.py score --dir submission --scorer-profile grader \
+  --held-out-fasta data/training/training.fasta --report-out reports/submission
 ```
 
 ## Grading
-`scripts/grade_submission.py` generates the raw metrics for each submission; `scripts/aggregate_scores.py` aggregates the metrics into a cumulative score used for grading. Some of the metrics used for grading are unbounded. `scripts/aggregate_scores.py` normalizes those metrics against a cohort of submissions before taking their geometric mean (explaination in the assignment document). It needs multiple submissions' reports to normalize against, so running it against a single submission won't produce a meaningful score. If you want to see the mechanics run anyway, point `--reports-dir` at a folder containing multiple `scorer.py --out ...` runs (e.g. from a few candidate models or checkpoints you're comparing). It'll normalize and combine whatever's in there, which is enough to see exactly how your metrics turn into a score:
+`scripts/grade_submission.py` generates the raw metrics for each submission; `scripts/aggregate_scores.py` aggregates the metrics into a cumulative score used for grading. One of the metrics used for grading (`FKEA`) is unbounded. `scripts/aggregate_scores.py` normalizes it against a cohort of submissions before taking the geometric mean of all the components (explaination in the assignment document). It needs multiple submissions' reports to normalize against, so running it against a single submission won't produce a meaningful score. If you want to see the mechanics run anyway, point `--reports-dir` at a folder containing multiple `scorer.py --out ...` runs (e.g. from a few candidate models or checkpoints you're comparing). It'll normalize and combine whatever's in there, which is enough to see exactly how your metrics turn into a score:
 
 ```bash
 uv run python scripts/aggregate_scores.py --reports-dir reports --out reports/leaderboard.json

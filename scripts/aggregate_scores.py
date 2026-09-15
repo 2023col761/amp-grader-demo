@@ -3,13 +3,16 @@
 This is code that grading uses to turn per-submission `seqme` metrics into
 the leaderboard score described in the assignment document.
 
-Metrics with no fixed upper bound (FKEA, Activity) need putting on a comparable scale against
+Metrics with no fixed upper bound (FKEA) need putting on a comparable scale against
 the cohort. These are standardized using the cohort's median and MAD (median absolute deviation)
 and squashed through a fixed-scale sigmoid into (0,1).
 
 Other metrics are already bounded to (0,1]/[0,1] after direction-fixing and is used as-is (just
 floored at `epsilon`, so a component landing at exactly 0 can't zero out the whole geometric mean);
 rescaling an already-bounded metric to the cohort would make it cohort-relative for no reason.
+
+Activity is in that second group: it is the mean of a per-sequence probability predictor, so it
+cannot leave [0,1] and is used as measured rather than against the cohort.
 
 This requires seeing every submission in a phase at once, so it can only run after every submission
 in that phase has been individually graded by grade_submission.py -- a separate, later step, not
@@ -32,7 +35,11 @@ CONSTRAINT_METRICS = {"Count", "Uniqueness"}
 FBD_GENERIC = "FBD (generic)"
 FBD_AMPS = "FBD (AMPs)"
 FBD_MARGIN = "FBD margin"
-UNBOUNDED_METRICS = {"FKEA", "Activity"}
+# FKEA only. Activity is a mean predicted probability, so it is already bounded to [0,1] and
+# belongs with the metrics used as-is -- cohort-normalizing a bounded metric would stretch a small
+# real spread across the full range and let one modestly-below-median submission land on the
+# epsilon floor. FKEA has no upper bound and is still normalized.
+UNBOUNDED_METRICS = {"FKEA"}
 ROBUST_SCALE = 1.0
 
 # Diagnostic only: enters the aggregate through FBD margin, not as a component of its own.
@@ -99,10 +106,10 @@ def normalize_components(
 ) -> dict[str, dict[str, float]]:
     """Bring every component onto a common, geometric-mean-safe scale.
 
-    Unbounded components (FKEA, Activity) are standardized against the cohort's median/MAD and
-    squashed through a sigmoid into (0,1) -- robust to a single unusually good/bad/degenerate
-    submission in a small cohort, unlike min-max. Everything else is already bounded after
-    direction-fixing (Diversity, Novelty, AuthPct, Conformity score, FBD margin -- all natively
+    Unbounded components (FKEA) are standardized against the cohort's median/MAD and squashed
+    through a sigmoid into (0,1) -- robust to a single unusually good/bad/degenerate submission in
+    a small cohort, unlike min-max. Everything else is already bounded after direction-fixing
+    (Diversity, Novelty, Activity, AuthPct, Conformity score, FBD margin -- all natively
     [0,1]-ish; FBD (AMPs) via the 1/(1+x) transform) and is left as raw, just floored at epsilon.
     """
     normalized = {submission_id: {} for submission_id in fixed}
