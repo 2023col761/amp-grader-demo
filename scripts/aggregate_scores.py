@@ -4,8 +4,8 @@ This is code that grading uses to turn per-submission `seqme` metrics into
 the leaderboard score described in the assignment document.
 
 Metrics with no fixed upper bound (FKEA) need putting on a comparable scale against
-the cohort. These are standardized using the cohort's median and MAD (median absolute deviation)
-and squashed through a fixed-scale sigmoid into (0,1).
+the cohort. They are divided by the cohort's maximum, so the best submission scores 1.0 and every
+other one keeps its raw ratio to it.
 
 Other metrics are already bounded to (0,1]/[0,1] after direction-fixing and is used as-is (just
 floored at `epsilon`, so a component landing at exactly 0 can't zero out the whole geometric mean);
@@ -19,7 +19,7 @@ in that phase has been individually graded by grade_submission.py -- a separate,
 part of grading a single submission. You won't have access to the cohort, so this won't
 produce a meaningful score for you locally -- but if you want to see the mechanics run, you can
 point --reports-dir at a folder of several of your own `scorer.py --out ...` runs (e.g. across a
-few candidate models/checkpoints) to watch it standardize and combine them.
+few candidate models/checkpoints) to watch it scale and combine them.
 
 Usage:
   uv run python scripts/aggregate_scores.py --reports-dir reports/phase3 \
@@ -38,9 +38,8 @@ FBD_MARGIN = "FBD margin"
 # FKEA only. Activity is a mean predicted probability, so it is already bounded to [0,1] and
 # belongs with the metrics used as-is -- cohort-normalizing a bounded metric would stretch a small
 # real spread across the full range and let one modestly-below-median submission land on the
-# epsilon floor. FKEA has no upper bound and is still normalized.
+# epsilon floor. FKEA has no upper bound and is still scaled, by the cohort maximum.
 UNBOUNDED_METRICS = {"FKEA"}
-ROBUST_SCALE = 1.0
 
 # Diagnostic only: enters the aggregate through FBD margin, not as a component of its own.
 DIAGNOSTIC_METRICS = {FBD_GENERIC}
@@ -90,40 +89,25 @@ def direction_fix(raw: dict[str, dict[str, float]], objectives: dict[str, str]) 
     return fixed
 
 
-def median(values: list[float]) -> float:
-    s = sorted(values)
-    n = len(s)
-    mid = n // 2
-    return s[mid] if n % 2 == 1 else (s[mid - 1] + s[mid]) / 2.0
-
-
-def sigmoid(z: float) -> float:
-    return 1.0 / (1.0 + math.exp(-z))
-
-
 def normalize_components(
     fixed: dict[str, dict[str, float]], components: list[str], epsilon: float
 ) -> dict[str, dict[str, float]]:
     """Bring every component onto a common, geometric-mean-safe scale.
 
-    Unbounded components (FKEA) are standardized against the cohort's median/MAD and squashed
-    through a sigmoid into (0,1) -- robust to a single unusually good/bad/degenerate submission in
-    a small cohort, unlike min-max. Everything else is already bounded after direction-fixing
-    (Diversity, Novelty, Activity, AuthPct, Conformity score, FBD margin -- all natively
-    [0,1]-ish; FBD (AMPs) via the 1/(1+x) transform) and is left as raw, just floored at epsilon.
+    Unbounded components (FKEA) are divided by the cohort's maximum, so the best submission scores
+    1.0 and every other one keeps its raw ratio to it. Everything else is already bounded after
+    direction-fixing (Diversity, Novelty, Activity, AuthPct, Conformity score, FBD margin -- all
+    natively [0,1]-ish; FBD (AMPs) via the 1/(1+x) transform) and is left as raw. Every component
+    is floored at epsilon.
     """
     normalized = {submission_id: {} for submission_id in fixed}
     for metric in components:
         if metric in UNBOUNDED_METRICS:
-            values = [fixed[submission_id][metric] for submission_id in fixed]
-            med = median(values)
-            mad = median([abs(v - med) for v in values])
+            top = max(fixed[submission_id][metric] for submission_id in fixed)
+            if top <= 0:
+                raise ValueError(f"Cannot scale '{metric}' by the cohort maximum {top!r}; expected a positive value.")
             for submission_id in fixed:
-                if mad == 0:
-                    normalized[submission_id][metric] = 0.5
-                else:
-                    z = (fixed[submission_id][metric] - med) / (ROBUST_SCALE * mad)
-                    normalized[submission_id][metric] = max(sigmoid(z), epsilon)
+                normalized[submission_id][metric] = max(fixed[submission_id][metric] / top, epsilon)
         else:
             for submission_id in fixed:
                 normalized[submission_id][metric] = max(fixed[submission_id][metric], epsilon)
